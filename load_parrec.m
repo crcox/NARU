@@ -22,54 +22,74 @@ function [dynamics, image_meta, image_info] = ...
 %        (although technically it suggests uint16).
 %        - CRC: I have loaded one fMRI PAR/REC file as both uint16 and int16
 %        and the resulting matrices are identical.
-%        !!! CRC: For historical reasons (i.e., this is how it is done in
-%        dual_echo_analyse.m), the default assumed format for this function
-%        is int16. Because we cannot know for sure, it might be worth
-%        loading data as int16 and uint16 (particularly for DTI data, see
-%        link above for anecdotal evidence) and proving that they are the
-%        same.
+%        [superceded] CRC: For historical reasons (i.e., this is how it is
+%        done in dual_echo_analyse.m), the default assumed format for this
+%        function is int16. Because we cannot know for sure, it might be
+%        worth loading data as int16 and uint16 (particularly for DTI data,
+%        see link above for anecdotal evidence) and proving that they are
+%        the same.
+%        !!! The previous statement isn't true anymore... I am running with
+%        uint16 as the default since that is what Nibable and many others
+%        are assuming.
 %
 %  CRC: I have checked the procedure below against the procedure included
 %  as part of dual_echo_analyse.m and they produce identical matrices.
+%  CRC: Update... this is not true anymore, because I changed how data are
+%  loaded (as double rather than int) and scaled (I scale using the
+%  equations specified in the PAR header without KARLS_RESCALEFACTOR. But
+%  nothing else was changed, so they still match up to a linear
+%  transformation.
 %
-% <Chris Cox 14/03/2017>
+%  CRC: A note on computational efficiency. This implementation reads the
+%  whole PAR file and the whole REC file into memory and holds it there.
+%  Searching for text fields in the PAR file involve scanning all the text
+%  several times. Clearly, this could be improved upon, but PAR files are
+%  not huge so we get away with it. The package ReadData3D (posted to
+%  Matlab Central by Dirk-Jan Kroon (c) 2010) includes a far more efficient
+%  functoin for reading from the PAR file, if anyone ever feels like
+%  refactoring this code to be more like that.
+%
+% <Chris Cox 23/03/2017>
 % <Adapted from work by Ajay Halai>
 
-    KARLS_RESCALEFACTOR = 1000;
-    DEFAULT_TARGET_DATAFORMAT = dataformat_source;
+    % KARLS_RESCALEFACTOR = 1000;
+    % CRC: For the time being, I am operating without this as a default.
+    DEFAULT_TARGET_DATAFORMAT = 'double';
     % N.B. if left empty, will also default to source type.
+    % Since this function loads the data into memory and returns it for
+    % further analysis we probably want to load as double. If loaded as
+    % double, and the data were stored as integers in the REC file, the
+    % returned values will be scaled.
 
-    % LOAD_PARREC Parse Par/Rec files into matrixes.
     [pr_path,pr_name,~] = fileparts(filename);
     par_fullfile = [fullfile(pr_path,pr_name),'.PAR'];
     rec_fullfile = [fullfile(pr_path,pr_name),'.REC'];
 
-    % load text data from PAR file.
+    %% Load text data from PAR file.
     fid = fopen(par_fullfile);
     data_description = textscan(fid,'%s','Delimiter','\n');
     data_description = data_description{1};
     fclose(fid);
 
-    % if version number is not provide, look it up.
+    % if version number is not provided, look it up.
     if nargin < 2 || isempty(version)
         version = get_RIET_version(data_description);
     end
     
-    % initialize data structures
+    %% Initialize data structures
     image_meta = init_meta_struct(version);
     image_info = init_info_struct(version);
     
-    % parse metadata
+    %% Parse metadata
     image_meta = parse_par_structured_text(image_meta, data_description);
-
-    % parse image info
-    image_info = parse_par_tabular_text(image_info, data_description);
-
     % extract number of slices and volumes (i.e., dynamics; determined by
     % gradient)
     slicen = image_meta.Max_number_of_slices;
-    gradient = image_meta.Max_number_of_dynamics;
-    gradientn = 2 * gradient;
+    gradientn = image_meta.Max_number_of_dynamics;
+    %gradientn = 2 * gradient;
+    
+    %% Parse image info
+    image_info = parse_par_tabular_text(image_info, data_description);
 
     % extract the pixel resolution of each slice
     x = image_info(1).recon_resolution(1,1); % (right-left) (check these comments...)
@@ -81,7 +101,12 @@ function [dynamics, image_meta, image_info] = ...
     outdim(3) = image_info(1).slice_thickness(1,1);
 
     % extract scaling factor, which is applied to the functional data.
-    scalingfactor = image_info(1).scale_slope(1,1);
+    RI = image_info(1).rescale_intercept(1,1);
+    RS = image_info(1).rescale_slope(1,1);
+    SS = image_info(1).scale_slope(1,1);
+    
+    scalingfactor = 1/SS;
+    scalingintercept = RI/(RS*SS);
 
     % gradientnhalf = round(gradientn/2);
     num_images = gradientn * slicen;
@@ -90,20 +115,20 @@ function [dynamics, image_meta, image_info] = ...
         error('load_parrec:badMetaRead', 'The number of slices/images in the REC file implied by the max number of slices per volume and the number of volumes acquired differ from the number of slices listed in the info table. Either metadata is being misread or the source data may be corrupted.');
     end
     
-    % note echo times for each dynamic
+    %% Note echo times for each dynamic
     echo_number = image_info(1).echo_number;
     TE = image_info(1).echo_time;
     tmp = unique(sortrows([echo_number,TE]),'rows');
     % echo_index = tmp(:,1);
     TE_index = tmp(:,2);
     
-    % compose the data specification
+    %% Compose the data specification
     % If number of bits per value is not specified, read from file.
     % The data is most likely stored as a 16 bit integer. There is a
     % question as to whether it is signed or unsigned. We might want to
     % represent the data as 
     if nargin < 3 || isempty(dataformat_source)
-      dataformat_source = 'int'; % maybe uint should be default?
+      dataformat_source = 'uint';
     end
     if nargin < 4 || isempty(bits_source)
         bits_source = image_info(1).image_pixel_size(1);
@@ -143,25 +168,49 @@ function [dynamics, image_meta, image_info] = ...
     end
     dataformatcode = sprintf('%s=>%s', dataformat_source_code, dataformat_target_code);
     
-    % Report data info before reading
+    %% Report data info before reading
     fprintf('Started %s\n', datestr(now, 'dd mmmm yyyy, HH:MM:SS.FFF'));
     fprintf('PAR/REC export version: %s\n', version);
     fprintf('Data format code: %s\n', dataformatcode);
-    fprintf('Recon Resolution (Field Of View): %dx%d\n', x, y);
+    fprintf('Recon Resolution (Field Of View): %d x %d (pixels)\n', x, y);
     fprintf('Number of slices: %d\n', slicen);
-    fprintf('Max number of dynamics (functional volumes/dynamics): %.2f\n', gradient);
-    fprintf('Voxel size: %dx%dx%d\n', outdim);
+    fprintf('Max number of dynamics (functional volumes/dynamics): %.2f\n', gradientn);
+    fprintf('Voxel size: %.2f x %.2f x %.2f (mm)\n', outdim);
     fprintf('Total number of images (i.e., slices) to read from REC: %d\n', num_images);
     fprintf('Total number of data points (i.e., voxels) to read from REC: %d\n', num_elements);
-    fprintf('Echo time(s):'); fprintf(' %d', TE_index); fprintf('\n');
+    fprintf('Echo time(s):'); fprintf(' %.2f', TE_index); fprintf(' (ms)\n');
     
+    %% Read data from REC file
     fid = fopen(rec_fullfile); %open data stream for rec file
     img = fread(fid,num_elements,dataformatcode)'; % read stream as specified in dataformatcode
     fclose(fid);
     
-    % Reshape and rescale vector into a recognizable format (3D+time).
-    dual4d = (reshape(img,[x y slicen gradientn]) ./ scalingfactor) ./ KARLS_RESCALEFACTOR;
+    %% Reshape and rescale vector into a recognizable format (3D+time).
+    % CRC: When it comes to rescaling, there are two distinct formulas.
+    % From the PAR header:
+    %  # === PIXEL VALUES =============================================================
+    %  #  PV = pixel value in REC file, FP = floating point value, DV = displayed value on console
+    %  #  RS = rescale slope,           RI = rescale intercept,    SS = scale slope
+    %  #  DV = PV * RS + RI             FP = DV / (RS * SS)
+    %
+    % The "displayed value" is different than the "floating point value"
+    % for some reason. Generally, people don't seem to think it matters
+    % much but that the floating point (FP) value to be the most
+    % definiative. To move directly from the stored pixel value (PV) to the
+    % FP value:
+    %   FP = PV * (1/SS) + RI/(RS*SS)
+    % So if we were to provide a slope and intercept to the Nifti format,
+    % slope = 1/SS and intercept = RI/(RS*SS). If we were going to store
+    % the data again to disk as a nifti file we would reverse the
+    % operation:
+    %   PV = uint16((FP - intercept) / slope);
+    if strcmpi(dataformat_target, 'double') && strcmpi(dataformat_source, 'int')
+        dual4d = (reshape(img,[x y slicen gradientn]) * scalingfactor) + scalingintercept; % ./ KARLS_RESCALEFACTOR;
+    else
+        dual4d = (reshape(img,[x y slicen gradientn]));
+    end
 
+    %% Parse data and information by protocol/echo type (and return)
     [dynamics, dyn_ind] = info_by_configuration(image_info, version);
     % dyn_ind gives a selector for each slice. Since we need to select by
     % volume, and protocol information is not varying by slice, we can
