@@ -36,7 +36,7 @@ function [dynamics, image_meta, image_info] = ...
 % <Adapted from work by Ajay Halai>
 
     KARLS_RESCALEFACTOR = 1000;
-    DEFAULT_TARGET_DATAFORMAT = dataformat_source;
+    DEFAULT_TARGET_DATAFORMAT = 'double';
     % N.B. if left empty, will also default to source type.
 
     % LOAD_PARREC Parse Par/Rec files into matrixes.
@@ -65,11 +65,16 @@ function [dynamics, image_meta, image_info] = ...
     % parse image info
     image_info = parse_par_tabular_text(image_info, data_description);
 
+    [dynamics, dyn_ind] = info_by_configuration(image_info, version);
+    % dyn_ind gives a selector for each slice. Since we need to select by
+    % volume, and protocol information is not varying by slice, we can
+    % reshape so that each column corresponds to a volume containing slicen
+    % slices, and skim off the first row to index into the volumes.
     % extract number of slices and volumes (i.e., dynamics; determined by
     % gradient)
     slicen = image_meta.Max_number_of_slices;
-    gradient = image_meta.Max_number_of_dynamics;
-    gradientn = 2 * gradient;
+    gradientn = image_meta.Max_number_of_dynamics * numel(dynamics);
+    %gradientn = 2 * gradient;
 
     % extract the pixel resolution of each slice
     x = image_info(1).recon_resolution(1,1); % (right-left) (check these comments...)
@@ -149,7 +154,7 @@ function [dynamics, image_meta, image_info] = ...
     fprintf('Data format code: %s\n', dataformatcode);
     fprintf('Recon Resolution (Field Of View): %dx%d\n', x, y);
     fprintf('Number of slices: %d\n', slicen);
-    fprintf('Max number of dynamics (functional volumes/dynamics): %.2f\n', gradient);
+    fprintf('Max number of dynamics (functional volumes/dynamics): %.2f\n', gradientn);
     fprintf('Voxel size: %dx%dx%d\n', outdim);
     fprintf('Total number of images (i.e., slices) to read from REC: %d\n', num_images);
     fprintf('Total number of data points (i.e., voxels) to read from REC: %d\n', num_elements);
@@ -162,11 +167,6 @@ function [dynamics, image_meta, image_info] = ...
     % Reshape and rescale vector into a recognizable format (3D+time).
     dual4d = (reshape(img,[x y slicen gradientn]) ./ scalingfactor) ./ KARLS_RESCALEFACTOR;
 
-    [dynamics, dyn_ind] = info_by_configuration(image_info, version);
-    % dyn_ind gives a selector for each slice. Since we need to select by
-    % volume, and protocol information is not varying by slice, we can
-    % reshape so that each column corresponds to a volume containing slicen
-    % slices, and skim off the first row to index into the volumes.
     dyn_ind = reshape(dyn_ind, slicen, gradientn);
     
     % loop over the different types of dynamics and plug in the data.
