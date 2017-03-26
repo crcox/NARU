@@ -5,13 +5,13 @@
 
 %file prefix explanation: s: smoothing; w: normalisation; 
 %r: coregistration; v: average of short and long echos; a:slice timing; u: realignment and unwarp
+
+%% part 1
 parrec_root = 'D:\MRI\SoundPicture\data\PARREC';
 
 spm('fMRI');
-spm_jobman('initcfg');
-
-root = uigetdir('','Please select folder containing all subject folders');
 [spmpath,~,~] = fileparts(which('spm'));
+spm_jobman('initcfg');
 
 % Subjects
 subject = {...
@@ -39,6 +39,7 @@ subject = {...
     'MRH026_220',...
     'MRH026_221'};
 
+%% Part 2
 for i_subj = 1:length(subject);
     % extract PARREC to short and long echo, takes into account if you have
     % multiple runs - you need to name each run at beginning.
@@ -51,8 +52,8 @@ for i_subj = 1:length(subject);
     % preallocate properly, so I will let it grow dynamically.
     for i=1:numel(subj_dir.runs);
         run_prefix = fullfile(subject_path, subj_dir.runs{i});
-        [dynamics, image_meta(i)] = load_parrec(run_prefix,[],[],[],[],[]); %#ok<SAGROW>
-        [dynamics(:,i).run] = deal(i);
+        [dynamics(:,i), image_meta(i)] = load_parrec(run_prefix,[],[],[],[],[]); %#ok<SAGROW>
+        [dynamics(:,i).run] = deal(i); %#ok<SAGROW>
     end
     
     % Load fieldmapping scans (in "B0" field)
