@@ -82,14 +82,24 @@ function [dynamics, image_meta, image_info] = ...
     
     %% Parse metadata
     image_meta = parse_par_structured_text(image_meta, data_description);
-    % extract number of slices and volumes (i.e., dynamics; determined by
-    % gradient)
-    slicen = image_meta.Max_number_of_slices;
-    gradientn = image_meta.Max_number_of_dynamics;
-    %gradientn = 2 * gradient;
     
     %% Parse image info
     image_info = parse_par_tabular_text(image_info, data_description);
+    
+    %% Parse data and information by protocol/echo type (and return)
+    [dynamics, dyn_ind] = info_by_configuration(image_info, version);
+    % dyn_ind gives a selector for each slice. Since we need to select by
+    % volume, and protocol information is not varying by slice, we can
+    % reshape so that each column corresponds to a volume containing slicen
+    % slices, and skim off the first row to index into the volumes.
+    
+    % extract number of slices and volumes (i.e., dynamics; determined by
+    % gradient)
+    slicen = image_meta.Max_number_of_slices;
+    gradientn = image_meta.Max_number_of_dynamics * numel(dynamics);
+    %gradientn = 2 * gradient;
+    
+    dyn_ind = reshape(dyn_ind, slicen, gradientn);
 
     % extract the pixel resolution of each slice
     x = image_info(1).recon_resolution(1,1); % (right-left) (check these comments...)
@@ -209,14 +219,6 @@ function [dynamics, image_meta, image_info] = ...
     else
         dual4d = (reshape(img,[x y slicen gradientn]));
     end
-
-    %% Parse data and information by protocol/echo type (and return)
-    [dynamics, dyn_ind] = info_by_configuration(image_info, version);
-    % dyn_ind gives a selector for each slice. Since we need to select by
-    % volume, and protocol information is not varying by slice, we can
-    % reshape so that each column corresponds to a volume containing slicen
-    % slices, and skim off the first row to index into the volumes.
-    dyn_ind = reshape(dyn_ind, slicen, gradientn);
     
     % loop over the different types of dynamics and plug in the data.
     for i = 1:numel(dynamics)
