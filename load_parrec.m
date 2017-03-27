@@ -337,13 +337,16 @@ function targetstruct = parse_par_structured_text(targetstruct, partext)
         row_str = parstructtext{row_id};
         delim_pos = strfind(row_str, ':');
         row_val = strtrim(row_str((delim_pos(1)+1):end));
-        row_num = str2double(row_val); % This will yield [] unless the content of row_val is exclusively numeric
-        if isempty(row_num);
-            targetstruct.(fn{i}) = row_val;
+        row_vals = strsplit(row_val);
+        row_nums = str2double(row_vals); % This will yield [] unless the content of row_val is exclusively numeric
+        if any(isnan(row_nums));
+            targetstruct.(fn{i}) = row_vals;
         else
-            targetstruct.(fn{i}) = row_num;
+            targetstruct.(fn{i}) = row_nums;
         end
     end
+    targetstruct.Angulation_midslice = targetstruct.Angulation_midslice([2,3,1]);
+    targetstruct.Off_Centre_midslice = targetstruct.Off_Centre_midslice([2,3,1]);
 end
 
 function row_id = rowfind(TEXT, PATTERN)
@@ -366,6 +369,9 @@ function targetstruct = parse_par_tabular_text(targetstruct, partext)
         targetstruct(1).(fn{i}) = M(:,a:b);
         cursor = cursor + n;
     end
+    targetstruct(1).image_angulation = targetstruct(1).image_angulation(:,[2,3,1]);
+    targetstruct(1).image_offcentre = targetstruct(1).image_offcentre(:,[2,3,1]);
+    
     if cursor < size(M, 2);
       warning('load_parrec:parse_par_tabular_text:dataMismatch', 'Some columns of the image data were not parsed. The assignment of columns to fields may be incorrect.');
       choice = input('Continue anyway? y/[n]: ');
