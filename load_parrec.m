@@ -345,8 +345,8 @@ function targetstruct = parse_par_structured_text(targetstruct, partext)
             targetstruct.(fn{i}) = row_nums;
         end
     end
-    targetstruct.Angulation_midslice = targetstruct.Angulation_midslice([2,3,1]);
-    targetstruct.Off_Centre_midslice = targetstruct.Off_Centre_midslice([2,3,1]);
+    targetstruct.Angulation_midslice = targetstruct.Angulation_midslice([3,1,2]);
+    targetstruct.Off_Centre_midslice = targetstruct.Off_Centre_midslice([3,1,2]);
 end
 
 function row_id = rowfind(TEXT, PATTERN)
